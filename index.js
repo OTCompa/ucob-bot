@@ -37,6 +37,8 @@ client.once(Events.ClientReady, readyClient => {
 // Log in to Discord with your client's token
 client.login(process.env.DISCORD_TOKEN);
 
+client.user.setActivity('activity');
+
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
 	const command = interaction.client.commands.get(interaction.commandName);
