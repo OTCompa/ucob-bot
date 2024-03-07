@@ -32,12 +32,12 @@ for (const folder of commandFolders) {
 // It makes some properties non-nullable.
 client.once(Events.ClientReady, readyClient => {
 	console.log(`Ready! Logged in as ${readyClient.user.tag}`);
+	client.user.setActivity('UCoB');
 });
 
 // Log in to Discord with your client's token
 client.login(process.env.DISCORD_TOKEN);
 
-client.user.setPresence({ activities: [{ name: 'UCoB' }], status: 'online' });
 
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
