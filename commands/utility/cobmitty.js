@@ -5,6 +5,6 @@ module.exports = {
 		.setName('cobmitty')
 		.setDescription('Responds with the COB Enjoyers certified COBMitty'),
 	async execute(interaction) {
-		await interaction.reply('COBMitty - https://tinyurl.com/cobmitty \nhttps://imgur.com/a/arELu8e (Imgur album)');
+		await interaction.reply('COBMitty - https://tinyurl.com/ucobmitty \nhttps://imgur.com/a/arELu8e (Imgur album)');
 	},
 };
