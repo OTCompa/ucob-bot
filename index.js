@@ -1,11 +1,12 @@
 // Require the necessary discord.js classes
 const fs = require('node:fs');
 const path = require('node:path');
-const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
+const { Client, Collection, Events, GatewayIntentBits, PermissionFlagsBits } = require('discord.js');
+const { honeypotChannelId, honeypotDeleteSeconds, honeypotExemptRoleIds } = require('./config.json');
 require('dotenv').config();
 
 // Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
 client.commands = new Collection();
 
@@ -21,7 +22,8 @@ for (const folder of commandFolders) {
 		// Set a new item in the Collection with the key as the command name and the value as the exported module
 		if ('data' in command && 'execute' in command) {
 			client.commands.set(command.data.name, command);
-		} else {
+		}
+		else {
 			console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
 		}
 	}
@@ -39,6 +41,37 @@ client.once(Events.ClientReady, readyClient => {
 client.login(process.env.DISCORD_TOKEN);
 
 
+// Honeypot: anyone who posts in the honeypot channel gets soft banned
+// (ban to delete their recent messages, then immediately unban).
+const honeypotHandled = new Set();
+
+client.on(Events.MessageCreate, async message => {
+	if (!honeypotChannelId || message.channelId !== honeypotChannelId) return;
+	if (!message.inGuild() || message.author.bot || message.webhookId) return;
+	if (honeypotHandled.has(message.author.id)) return;
+
+	const member = message.member ?? await message.guild.members.fetch(message.author.id).catch(() => null);
+	if (!member) return;
+	// Never act on moderators, exempt roles, or anyone the bot can't ban
+	if (member.permissions.has(PermissionFlagsBits.BanMembers) || !member.bannable) return;
+	if (honeypotExemptRoleIds?.some(roleId => member.roles.cache.has(roleId))) return;
+
+	honeypotHandled.add(message.author.id);
+	setTimeout(() => honeypotHandled.delete(message.author.id), 60_000);
+
+	try {
+		await member.ban({
+			deleteMessageSeconds: honeypotDeleteSeconds ?? 604800,
+			reason: `Honeypot: posted in #${message.channel.name}`,
+		});
+		await message.guild.bans.remove(message.author.id, 'Honeypot soft ban (removing spam only)');
+		console.log(`[HONEYPOT] Soft banned ${message.author.tag} (${message.author.id})`);
+	}
+	catch (error) {
+		console.error(`[HONEYPOT] Failed to soft ban ${message.author.tag}:`, error);
+	}
+});
+
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
 	const command = interaction.client.commands.get(interaction.commandName);
@@ -50,11 +83,13 @@ client.on(Events.InteractionCreate, async interaction => {
 
 	try {
 		await command.execute(interaction);
-	} catch (error) {
+	}
+	catch (error) {
 		console.error(error);
 		if (interaction.replied || interaction.deferred) {
 			await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
-		} else {
+		}
+		else {
 			await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
 		}
 	}
