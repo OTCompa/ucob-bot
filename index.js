@@ -64,6 +64,7 @@ client.on(Events.MessageCreate, async message => {
 			deleteMessageSeconds: honeypotDeleteSeconds ?? 604800,
 			reason: `Honeypot: posted in #${message.channel.name}`,
 		});
+		await new Promise(resolve => setTimeout(resolve, 5_000));
 		await message.guild.bans.remove(message.author.id, 'Honeypot soft ban (removing spam only)');
 		console.log(`[HONEYPOT] Soft banned ${message.author.tag} (${message.author.id})`);
 	}
