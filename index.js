@@ -44,11 +44,34 @@ client.login(process.env.DISCORD_TOKEN);
 // Honeypot: anyone who posts in the honeypot channel gets soft banned
 // (ban to delete their recent messages, then immediately unban).
 const honeypotHandled = new Set();
+// How far back the manual sweep looks (Discord's ban-delete can miss messages
+// sent in a burst right around the ban, so we clean those up ourselves).
+const SWEEP_WINDOW_MS = 30 * 60_000;
+
+// Delete any cached messages from this user across every channel/thread the bot has seen.
+async function sweepUserMessages(guild, userId) {
+	const cutoff = Date.now() - SWEEP_WINDOW_MS;
+	let deleted = 0;
+	for (const channel of guild.channels.cache.values()) {
+		if (!channel.isTextBased?.() || !channel.messages) continue;
+		const targets = channel.messages.cache.filter(m => m.author?.id === userId && m.createdTimestamp >= cutoff);
+		if (!targets.size) continue;
+		const results = await Promise.allSettled(targets.map(m => m.delete()));
+		deleted += results.filter(r => r.status === 'fulfilled').length;
+	}
+	return deleted;
+}
 
 client.on(Events.MessageCreate, async message => {
-	if (!honeypotChannelId || message.channelId !== honeypotChannelId) return;
 	if (!message.inGuild() || message.author.bot || message.webhookId) return;
-	if (honeypotHandled.has(message.author.id)) return;
+
+	// User is mid soft ban: delete anything else they post (in any channel) right away
+	if (honeypotHandled.has(message.author.id)) {
+		await message.delete().catch(() => null);
+		return;
+	}
+
+	if (!honeypotChannelId || message.channelId !== honeypotChannelId) return;
 
 	const member = message.member ?? await message.guild.members.fetch(message.author.id).catch(() => null);
 	if (!member) return;
@@ -67,6 +90,12 @@ client.on(Events.MessageCreate, async message => {
 		await new Promise(resolve => setTimeout(resolve, 5_000));
 		await message.guild.bans.remove(message.author.id, 'Honeypot soft ban (removing spam only)');
 		console.log(`[HONEYPOT] Soft banned ${message.author.tag} (${message.author.id})`);
+
+		// Double check: sweep now, then once more shortly after to catch stragglers
+		const swept = await sweepUserMessages(message.guild, message.author.id);
+		await new Promise(resolve => setTimeout(resolve, 15_000));
+		const swept2 = await sweepUserMessages(message.guild, message.author.id);
+		if (swept + swept2) console.log(`[HONEYPOT] Swept ${swept + swept2} leftover message(s) from ${message.author.tag}`);
 	}
 	catch (error) {
 		console.error(`[HONEYPOT] Failed to soft ban ${message.author.tag}:`, error);
